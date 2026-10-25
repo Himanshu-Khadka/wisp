@@ -1,0 +1,17 @@
+{
+  "version": "0.2.2",
+  "board": "Waveshare ESP32-S3-ePaper-3.97",
+  "chip": "esp32s3",
+  "offset": 0,
+  "flash_size": "16MB",
+  "partition_layout": "default_8MB (uses lower 8MB)",
+  "file": "Wisp-0.2.2-ESP32-S3-ePaper-3.97.bin",
+  "sha256": "a7a52e35cdac86174fa1862375c7c001c3ecb4aea479013a37abaef710007f0c",
+  "size": 16777216,
+  "app_file": "Wisp.ino.bin",
+  "app_sha256": "4b031d5039b66d1fc4b1336acc6fb5c7cb23b5b0921da7a7b0ab31e7061805dc",
+  "hardware_tested": false,
+  "arduino_esp32": "3.3.2",
+  "arduinojson": "7.4.2",
+  "vendor_commit": "9b12d40731a80213b927ee8a421cae4082952819"
+}

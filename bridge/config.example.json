@@ -1,0 +1,15 @@
+{
+  "token": "REPLACE_WITH_A_RANDOM_TOKEN_AT_LEAST_24_CHARACTERS",
+  "timezone": "America/Edmonton",
+  "latitude": 53.5461,
+  "longitude": -113.4938,
+  "calendar_ics_url": "",
+  "rss_urls": ["https://feeds.bbci.co.uk/news/world/rss.xml"],
+  "home_assistant_url": "",
+  "home_assistant_token": "",
+  "home_entities": [],
+  "controllable_entities": [],
+  "transcription_model": "",
+  "host": "0.0.0.0",
+  "port": 8787
+}

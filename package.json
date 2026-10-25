@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "scripts": {
+    "test": "node tests/test-epub.cjs"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0"
+  },
+  "name": "wisp",
+  "version": "0.2.2"
+}
