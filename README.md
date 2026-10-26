@@ -1,4 +1,4 @@
-# Wisp 0.2.2 — app grid, notes, and an SD library
+# Wisp 0.2.3 — app grid, notes, and an SD library
 
 For **Waveshare ESP32-S3-ePaper-3.97 only**: ESP32-S3, 800 × 480 display, 16 MB flash, 8 MB PSRAM.
 
@@ -50,7 +50,7 @@ To preserve internal settings and notes, use the **app-only upgrade**:
 
 This backs up the existing firmware, verifies the partition table matches, and writes only the app at **0x10000**. It refuses an incompatible partition layout. Use this only for an existing Deskling or Wisp installation, not an unrelated firmware that happens to share the same partition layout.
 
-For a different flasher: `bin/Wisp-0.2.2-ESP32-S3-ePaper-3.97.bin` is the **full merged image**, written at **0x0**. `bin/Wisp.ino.bin` is the **application-only image**, written at **0x10000** only on the matching Wisp layout. Do not swap these offsets.
+For a different flasher: `bin/Wisp-0.2.3-ESP32-S3-ePaper-3.97.bin` is the **full merged image**, written at **0x0**. `bin/Wisp.ino.bin` is the **application-only image**, written at **0x10000** only on the matching Wisp layout. Do not swap these offsets.
 
 `flash.py --verify-only` checks package integrity without touching a board. `--baud 115200` can help with a poor connection. `--skip-backup` is available only if you intentionally want to skip saving the current flash.
 
@@ -84,7 +84,7 @@ Default timezone is Edmonton with daylight saving time. The timezone setting acc
 
 Buttons normally act on release. A hold is over 0.8 seconds. During recording, a centre press stops capture. BOOT held during **power-on** enters the hardware download mode instead.
 
-Display refresh takes several seconds; let it finish before another button press. The focus timer tracks real elapsed seconds while its display updates once per minute. Each 25-minute work interval and five-minute break starts manually. Focus progress resets on restart; completed-session count persists.
+Cursor movement and changes within a page use partial refresh, without the previous three-second delay or a full-screen clearing flash. Unchanged frames are skipped. Opening a different app still performs a full refresh; after 40 partial updates, a cleanup refresh runs once navigation has been idle for 15 seconds. E-paper updates still take time; this is not an LCD. The focus timer tracks real elapsed seconds while its display updates once per minute. Each 25-minute work interval and five-minute break starts manually. Focus progress resets on restart; completed-session count persists.
 
 ## Voice → Notes
 
@@ -160,6 +160,7 @@ c++ -std=c++17 tests/test_core.cpp -o /tmp/wisp-test && /tmp/wisp-test
 bridge/.venv/bin/python -m unittest discover -s tests -v
 npm install
 npm test
+c++ -std=c++17 tests/test_display.cpp -o /tmp/wisp-display-test && /tmp/wisp-display-test
 python3 flash.py --verify-only
 ```
 

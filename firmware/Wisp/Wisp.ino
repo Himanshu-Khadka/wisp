@@ -19,6 +19,7 @@
 #include "GUI_Paint.h"
 #include "es8311.h"
 #include "core.h"
+#include "display_diff.h"
 #include "web.h"
 
 Preferences prefs;
@@ -26,7 +27,10 @@ WebServer web(80);
 JsonDocument state, feed;
 FocusTimer focus;
 I2SClass audio;
-uint8_t *frame=nullptr;
+uint8_t *frame=nullptr, *displayedFrame=nullptr, *partialFrame=nullptr;
+int displayedPage=-1;
+unsigned partialUpdates=0;
+uint32_t lastInputAt=0;
 String pinCode, apName, ssid, wifiPass, bridgeURL, bridgeToken, timezone;
 bool dirty=true, sdOK=false, audioOK=false, apActive=false, recordPending=false;
 int page=8, selected=0, readerPage=0, homeSelected=0, sessions=0;
@@ -107,8 +111,25 @@ void pet(int x,int y,int scale=1){
 }
 #include "services.h"
 #include "launcher.h"
+// Keep controller RAM alive between updates: partial refresh needs the base image.
+void presentFrame(){
+ const bool cleanup=displayCleanupDue(partialUpdates,millis(),lastInputAt);
+ const bool full=displayedPage!=page || !displayedFrame || !partialFrame || cleanup;
+ DisplayRegion region;
+ if(!full)region=displayDifference(displayedFrame,frame);
+ if(full){
+  EPD_3IN97_Init();EPD_3IN97_Display_Base(frame);partialUpdates=0;
+ }else if(region.changed()){
+  // Vendor partial API expects a packed rectangle, not the full-screen stride.
+  packDisplayRegion(frame,partialFrame,region);
+  EPD_3IN97_Display_Partial(partialFrame,region.x0,region.y0,region.x1,region.y1);
+  partialUpdates++;
+ }
+ if(displayedFrame)memcpy(displayedFrame,frame,48000);
+ displayedPage=page;lastDraw=millis();dirty=false;
+}
 void render(){
- if(!frame)return; Paint_Clear(WHITE); if(page==8){drawLauncher();EPD_3IN97_Init();EPD_3IN97_Display(frame);EPD_3IN97_Sleep();lastDraw=millis();dirty=false;return;} text(24,18,"WISP / "+String(pages[page]),&Font24);text(670,24,clockText(),&Font20,120);line(24,58,776,58);
+ if(!frame)return; Paint_Clear(WHITE); if(page==8){drawLauncher();presentFrame();return;} text(24,18,"WISP / "+String(pages[page]),&Font24);text(670,24,clockText(),&Font20,120);line(24,58,776,58);
  JsonArray tasks=state["tasks"].as<JsonArray>();
  if(page==0){text(24,80,clockText(true),&Font24);text(24,120,feed["weather"].as<String>().length()?feed["weather"].as<String>():"Weather: connect the optional bridge",&Font16);
  text(24,160,"NEXT UP",&Font16);wrap(24,190,feed["calendar"] | "Add a calendar in the bridge, or a task below.",48,2);
@@ -122,9 +143,9 @@ void render(){
  }else if(page==5){text(24,80,"HOME & ROOM",&Font24);text(24,125,isfinite(temperature)?String(temperature,1)+" C   "+String(humidity,0)+"% RH":"Room sensor unavailable",&Font24);JsonArray entities=feed["home"].as<JsonArray>();for(int i=0;i<min(5,(int)entities.size());i++)text(24,175+i*35,String(i==homeSelected?"> ":"  ")+entities[i]["name"].as<String>()+": "+entities[i]["state"].as<String>(),&Font16);
  if(!entities.size())text(24,180,"Optional: connect Home Assistant in the bridge.",&Font16);if(historyCount>1){float lo=100,hi=-100;for(int i=0;i<historyCount;i++){lo=min(lo,history[i]);hi=max(hi,history[i]);}for(int i=1;i<historyCount;i++)line(24+(i-1)*15,390-(history[i-1]-lo)*30/max(1.f,hi-lo),24+i*15,390-(history[i]-lo)*30/max(1.f,hi-lo));}text(24,415,"Room trend: last 48 minutes | centre toggles selected light",&Font12);
  }else if(page==6){pet(355,165,2);text(24,365,petMood(),&Font24);text(24,410,"Focus sessions: "+String(sessions)+" | Centre says hello",&Font16);
- }else {text(24,80,"MAKE YOURSELF AT HOME",&Font24);text(24,125,"Wi-Fi: "+String(WiFi.status()==WL_CONNECTED?WiFi.SSID():"not connected"),&Font20);text(24,165,"Open: http://"+(WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():WiFi.softAPIP().toString()),&Font20);text(24,205,"Login: admin    Password: "+pinCode,&Font20);text(24,245,"Setup Wi-Fi: "+apName,&Font20);text(24,285,"Setup Wi-Fi password: "+pinCode,&Font20);text(24,330,"Centre: enable setup Wi-Fi",&Font16);text(24,360,"microSD: "+String(sdOK?"ready":"not inserted")+" | audio: "+String(audioOK?"ready":"unavailable"),&Font16);text(24,395,"Firmware 0.2.2 | USB desk mode",&Font16);}
+ }else {text(24,80,"MAKE YOURSELF AT HOME",&Font24);text(24,125,"Wi-Fi: "+String(WiFi.status()==WL_CONNECTED?WiFi.SSID():"not connected"),&Font20);text(24,165,"Open: http://"+(WiFi.status()==WL_CONNECTED?WiFi.localIP().toString():WiFi.softAPIP().toString()),&Font20);text(24,205,"Login: admin    Password: "+pinCode,&Font20);text(24,245,"Setup Wi-Fi: "+apName,&Font20);text(24,285,"Setup Wi-Fi password: "+pinCode,&Font20);text(24,330,"Centre: enable setup Wi-Fi",&Font16);text(24,360,"microSD: "+String(sdOK?"ready":"not inserted")+" | audio: "+String(audioOK?"ready":"unavailable"),&Font16);text(24,395,"Firmware 0.2.3 | USB desk mode",&Font16);}
  line(24,445,776,445);text(24,457,notice.length()?notice:String(page+1)+"/8   BOOT: App grid   Hold centre: record note",&Font12);
- EPD_3IN97_Init();EPD_3IN97_Display(frame);EPD_3IN97_Sleep();lastDraw=millis();dirty=false;
+ presentFrame();
 }
 void i2cWrite(uint8_t addr,uint8_t reg,uint8_t val){Wire.beginTransmission(addr);Wire.write(reg);Wire.write(val);Wire.endTransmission();}
 bool i2cRead(uint8_t addr,uint8_t reg,uint8_t* b,int n){Wire.beginTransmission(addr);Wire.write(reg);if(Wire.endTransmission(false))return false;if(Wire.requestFrom(addr,(uint8_t)n)!=n)return false;for(int i=0;i<n;i++)b[i]=Wire.read();return true;}
@@ -152,6 +173,7 @@ void setupWeb(){
  web.onNotFound([]{if(apActive){web.sendHeader("Location","http://192.168.4.1/");web.send(302,"text/plain","");}else web.send(404,"text/plain","Not found");});web.begin();
 }
 void action(int button,bool held){
+ lastInputAt=millis();
  if(button==0){page=8;noteOpen=false;dirty=true;return;}
  if(page==8){if(button==5)page=APP_PAGES[appSelection];else appSelection=(appSelection+(button==4?-1:1)+9)%9;dirty=true;return;}
  if(button==5&&held&&page==2){recordPending=true;return;}
@@ -164,7 +186,7 @@ void action(int button,bool held){
  else if(page==7&&button==5)setupAP();
  dirty=true;
 }
-void buttons(){static const int pins[]={0,4,5,6};static bool stable[4]={1,1,1,1},rawOld[4]={1,1,1,1};static uint32_t changed[4]={},down[4]={};for(int i=0;i<4;i++){bool raw=digitalRead(pins[i]);if(raw!=rawOld[i]){rawOld[i]=raw;changed[i]=millis();}if(raw!=stable[i]&&millis()-changed[i]>35){stable[i]=raw;if(!raw)down[i]=millis();else action(pins[i],millis()-down[i]>800);}}}
+void buttons(){static const int pins[]={0,4,5,6};static bool stable[4]={1,1,1,1},rawOld[4]={1,1,1,1};static uint32_t changed[4]={},down[4]={};for(int i=0;i<4;i++){bool raw=digitalRead(pins[i]);if(raw!=rawOld[i]){rawOld[i]=raw;changed[i]=millis();}if(raw!=stable[i]&&millis()-changed[i]>35){stable[i]=raw;if(!raw){down[i]=millis();lastInputAt=millis();}else action(pins[i],millis()-down[i]>800);}}}
 void setup(){
  Serial.begin(115200);for(int p:{0,4,5,6})pinMode(p,INPUT_PULLUP);Wire.begin(41,42);Wire.setTimeOut(100);pinMode(39,OUTPUT);digitalWrite(39,LOW);
  // Keep the original NVS namespace so existing installations retain settings.
@@ -174,7 +196,7 @@ void setup(){
  SD_MMC.setPins(16,17,15,7,8,18);sdOK=SD_MMC.begin("/sdcard",true);if(sdOK){File r=SD_MMC.open("/reading.txt");if(r&&r.size()<=24000){String s=r.readString();s=clean(s,24000);s.replace("\n"," ");state["reading"]=s;}r.close();}
  if(sdOK){SD_MMC.mkdir("/books");SD_MMC.mkdir("/notes");}scanBooks();restoreNoteArchive();readSensor();uint8_t id;for(uint8_t addr:{0x6A,0x6B})if(i2cRead(addr,0,&id,1)&&id==5){imuAddr=addr;i2cWrite(addr,2,0x60);i2cWrite(addr,3,0x06);i2cWrite(addr,8,0x01);break;}
  audio.setPins(14,47,48,21,13);if(audio.begin(I2S_MODE_STD,16000,I2S_DATA_BIT_WIDTH_16BIT,I2S_SLOT_MODE_MONO,I2S_STD_SLOT_LEFT)){es8311_handle_t codec=es8311_create(I2C_NUM_0,ES8311_ADDRRES_0);es8311_clock_config_t c={false,false,true,4096000,16000};if(codec&&es8311_init(codec,&c,ES8311_RESOLUTION_16,ES8311_RESOLUTION_16)==ESP_OK){es8311_microphone_config(codec,false);es8311_microphone_gain_set(codec,ES8311_MIC_GAIN_24DB);es8311_voice_volume_set(codec,50,nullptr);audioOK=true;}}
- setupWeb();MDNS.begin("wisp");DEV_Module_Init();frame=(uint8_t*)ps_malloc(48000);if(!frame)frame=(uint8_t*)malloc(48000);if(!frame){Serial.println("No framebuffer memory");return;}Paint_NewImage(frame,800,480,0,WHITE);Paint_SetScale(2);render();lastSensor=millis();lastFeed=millis()-900000;petAwake=millis()-20000;
+ setupWeb();MDNS.begin("wisp");DEV_Module_Init();frame=(uint8_t*)ps_malloc(48000);if(!frame)frame=(uint8_t*)malloc(48000);if(!frame){Serial.println("No framebuffer memory");return;}displayedFrame=(uint8_t*)ps_malloc(48000);partialFrame=(uint8_t*)ps_malloc(48000);if(!displayedFrame||!partialFrame)Serial.println("Partial refresh buffers unavailable; using full refresh");Paint_NewImage(frame,800,480,0,WHITE);Paint_SetScale(2);render();lastSensor=millis();lastFeed=millis()-900000;petAwake=millis()-20000;
 }
 void loop(){if(apActive)dns.processNextRequest();web.handleClient();serviceNetwork();collectVoiceResult();buttons();if(recordPending)recordNote();if(focus.tick(millis())){if(focus.rest){sessions++;prefs.putInt("sessions",sessions);}notice=focus.rest?"Focus complete! Centre starts your break":"Break complete! Ready for another task";dirty=true;}
  if(millis()-lastSensor>=60000){lastSensor=millis();readSensor();rtcSave();dirty=true;}
@@ -182,5 +204,6 @@ void loop(){if(apActive)dns.processNextRequest();web.handleClient();serviceNetwo
  if(millis()-lastFeed>=900000&&WiFi.status()==WL_CONNECTED)fetchFeed();
  if(WiFi.status()!=WL_CONNECTED&&millis()-lastWiFiTry>30000){lastWiFiTry=millis();if(!apActive){setupAP();notice="Wi-Fi unavailable. Setup network enabled.";}if(ssid.length())WiFi.begin(ssid.c_str(),wifiPass.c_str());}
  static uint32_t motionAt=0;if(imuAddr&&millis()-motionAt>500){motionAt=millis();uint8_t b[6];if(i2cRead(imuAddr,0x35,b,6)){float magnitude=0;for(int i=0;i<3;i++){float v=(int16_t)((b[i*2+1]<<8)|b[i*2])/16384.f;magnitude+=v*v;}if(fabsf(magnitude-previousMotion)>0.8){petAwake=millis();if(page==6&&millis()-lastDraw>15000)dirty=true;}previousMotion=magnitude;}}
- if(frame&&dirty&&millis()-lastDraw>3000)render();delay(5);
+ if(displayCleanupDue(partialUpdates,millis(),lastInputAt))dirty=true;
+ if(frame&&dirty&&millis()-lastDraw>=120)render();delay(5);
 }
